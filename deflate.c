@@ -207,13 +207,58 @@ local void slide_hash(s)
 
     n = s->hash_size;
     p = &s->head[n];
+#ifdef ENABLE_MMI
+    __asm__ volatile(
+         "dmtc1     %2,    $f2           \n\t"
+         "punpcklhw $f2,   $f2,  $f2     \n\t"
+         "punpcklwd $f2,   $f2,  $f2     \n\t"
+         "xor       $f6,   $f6,  $f6     \n\t"
+         "1:                             \n\t"
+         "gsldlc1   $f0,   -0x01(%0)     \n\t"
+         "gsldrc1   $f0,   -0x08(%0)     \n\t"
+         "psubush   $f4,   $f0,  $f2     \n\t"
+         "pcmpgtw   $f8,   $f4,  $f6     \n\t"
+         "and       $f4,   $f4,  $f8     \n\t"
+         "gssdlc1   $f4,   -0x01(%0)     \n\t"
+         "gssdrc1   $f4,   -0x08(%0)     \n\t"
+         "daddiu    %0,    %0,   -0x08   \n\t"
+         "daddiu    %1,    %1,   -0x01   \n\t"
+         "bnez      %1,    1b            \n\t"
+	 : "+&r"(p)
+         : "r"(n / 4), "r"(wsize)
+	 : "memory", "$f0", "$f2", "$f4", "$f6"
+    );
+#else
     do {
         m = *--p;
         *p = (Pos)(m >= wsize ? m - wsize : NIL);
     } while (--n);
+#endif
     n = wsize;
 #ifndef FASTEST
     p = &s->prev[n];
+#ifdef ENABLE_MMI
+    __asm__ volatile(
+         "dmtc1     %2,    $f2           \n\t"
+         "punpcklhw $f2,   $f2,  $f2     \n\t"
+         "punpcklwd $f2,   $f2,  $f2     \n\t"
+         "xor       $f6,   $f6,  $f6     \n\t"
+         "1:                             \n\t"
+         "gsldlc1   $f0,   -0x01(%0)     \n\t"
+         "gsldrc1   $f0,   -0x08(%0)     \n\t"
+         "psubush   $f4,   $f0,  $f2     \n\t"
+         "pcmpgtw   $f8,   $f4,  $f6     \n\t"
+         "and       $f4,   $f4,  $f8     \n\t"
+         "gssdlc1   $f4,   -0x01(%0)     \n\t"
+         "gssdrc1   $f4,   -0x08(%0)     \n\t"
+         "daddiu    %0,    %0,   -0x08   \n\t"
+         "daddiu    %1,    %1,   -0x01   \n\t"
+         "bnez      %1,    1b            \n\t"
+         : "+&r"(p)
+         : "r"(n / 4), "r"(wsize)
+         : "memory", "$f0", "$f2", "$f4", "$f6"
+    );
+#else
     do {
         m = *--p;
         *p = (Pos)(m >= wsize ? m - wsize : NIL);
@@ -221,6 +266,7 @@ local void slide_hash(s)
          * its value will never be used.
          */
     } while (--n);
+#endif
 #endif
 }
 
@@ -1310,12 +1356,43 @@ local uInt longest_match(s, cur_match)
          */
         Assert(scan[2] == match[2], "scan[2]?");
         scan++, match++;
+#ifdef ENABLE_MMI
+	do {
+            __asm__ volatile (
+                ".set noreorder      \r\n"
+                "1:                  \r\n"
+                "daddu   $10, %0, 8  \r\n"
+                "bgeu    $10, %2, 2f \r\n"
+                "nop                 \r\n"
+                "ldr     $8,  1(%0)  \r\n"
+                "ldl     $8,  8(%0)  \r\n"
+                "ldr     $9,  1(%1)  \r\n"
+                "ldl     $9,  8(%1)  \r\n"
+                "bne     $8,  $9, 2f \r\n"
+                "nop                 \r\n"
+                "daddu   %0,  %0, 8  \r\n"
+                "daddu   %1,  %1, 8  \r\n"
+                "b       1b          \r\n"
+                "nop                 \r\n"
+                "2:                  \r\n"
+                ".set reorder        \r\n"
+                : "+&r"(scan), "+&r"(match)
+                : "r"(strend)
+                : "memory", "$8", "$9", "$10"
+            );
+        } while (*(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
+                 *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
+                 *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
+                 *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
+                 scan < strend);
+#else
         do {
         } while (*(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
                  *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
                  *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
                  *(ushf*)(scan+=2) == *(ushf*)(match+=2) &&
                  scan < strend);
+#endif
         /* The funny "do {}" generates better code on most compilers */
 
         /* Here, scan <= window+strstart+257 */
@@ -1344,13 +1421,43 @@ local uInt longest_match(s, cur_match)
         /* We check for insufficient lookahead only every 8th comparison;
          * the 256th check will be made at strstart+258.
          */
+#ifdef ENABLE_MMI
+	do {
+            __asm__ volatile (
+                ".set noreorder      \r\n"
+                "1:                  \r\n"
+                "daddu   $10, %0, 8  \r\n"
+                "bgeu    $10, %2, 2f \r\n"
+                "nop                 \r\n"
+                "ldr     $8,  1(%0)  \r\n"
+                "ldl     $8,  8(%0)  \r\n"
+                "ldr     $9,  1(%1)  \r\n"
+                "ldl     $9,  8(%1)  \r\n"
+                "bne     $8,  $9, 2f \r\n"
+                "nop                 \r\n"
+                "daddu   %0,  %0, 8  \r\n"
+                "daddu   %1,  %1, 8  \r\n"
+                "b       1b          \r\n"
+                "nop                 \r\n"
+                "2:                  \r\n"
+                ".set reorder        \r\n"
+                : "+&r"(scan), "+&r"(match)
+                : "r"(strend)
+                : "memory", "$8", "$9", "$10"
+            );
+        } while (*++scan == *++match && *++scan == *++match &&
+                 *++scan == *++match && *++scan == *++match &&
+                 *++scan == *++match && *++scan == *++match &&
+                 *++scan == *++match && *++scan == *++match &&
+                 scan < strend);
+#else
         do {
         } while (*++scan == *++match && *++scan == *++match &&
                  *++scan == *++match && *++scan == *++match &&
                  *++scan == *++match && *++scan == *++match &&
                  *++scan == *++match && *++scan == *++match &&
                  scan < strend);
-
+#endif
         Assert(scan <= s->window+(unsigned)(s->window_size-1), "wild scan");
 
         len = MAX_MATCH - (int)(strend - scan);

@@ -250,7 +250,70 @@ unsigned start;         /* inflate()'s starting value for strm->avail_out */
                 }
                 else {
                     from = out - dist;          /* copy direct from output */
-                    do {                        /* minimum length is three */
+                    printf("len:%d, dist:%d\n", len, dist);
+#ifdef ENABLE_MMI
+                    while (len > 7 && dist >= 8) {
+                        __asm__ volatile (
+                        ".set noreorder         \r\n"
+                        "uld     $8,  0(%4)     \r\n"
+                        "daddiu  %2,  %5,   -8  \r\n"
+                        "daddiu  %1,  %4,    8  \r\n"
+                        "usd     $8,  0(%3)     \r\n"
+                        "daddiu  %0,  %3,    8  \r\n"
+                        ".set reorder           \r\n"
+                        : "=r"(out), "=r"(from), "=r"(len)
+                        : "r"(out), "r"(from), "r"(len)
+                        : "$8"
+                        );
+                    }
+                    if (dist == 1) {
+                        unsigned char f_tmp = *(from);
+                        from += len;
+                        unsigned long long f_8;
+                        __asm__ volatile (
+                        ".set noreorder            \r\n"
+                        "move   $9, $0             \r\n"
+                        "move   $8, $0             \r\n"
+                        "dins   $8, %1, 0x8,  0x8  \r\n"
+                        "or     $8, $8, %1         \r\n"
+                        "dins   $9, $8, 0x10, 0x10 \r\n"
+                        "or     $9, $8, $9         \r\n"
+                        "dsll   $8, $9, 0x20       \r\n"
+                        "or     %0, $9, $8         \r\n"
+                        ".set reorder              \r\n"
+                        : "=r"(f_8)
+                        : "r"(f_tmp)
+                        : "$8", "$9"
+                        );
+                        while (len > 7) {
+                            __asm__ volatile (
+                            ".set noreorder       \r\n"
+                            "usd      %2, (%0)    \r\n"
+                            "daddiu   %0, %0, 8   \r\n"
+                            "daddiu   %1, %1,-8   \r\n"
+                            ".set reorder         \r\n"
+                            : "=r"(out), "=r"(len)
+                            : "r"(f_8)
+                            );
+                        }
+                        while (len--) {
+                            *out++ = f_tmp;
+                        }
+                    } else {
+                        while (len > 2) {           /* minimum length is three */
+                            *out++ = *from++;
+                            *out++ = *from++;
+                            *out++ = *from++;
+                            len -= 3;
+                        }
+                        if (len) {
+                            *out++ = *from++;
+                            if (len > 1)
+                                *out++ = *from++;
+                        }
+                    }
+#else 
+                    do {                         /* minimum length is three */
                         *out++ = *from++;
                         *out++ = *from++;
                         *out++ = *from++;
@@ -261,6 +324,7 @@ unsigned start;         /* inflate()'s starting value for strm->avail_out */
                         if (len > 1)
                             *out++ = *from++;
                     }
+#endif
                 }
             }
             else if ((op & 64) == 0) {          /* 2nd level distance code */
